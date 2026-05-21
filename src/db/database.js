@@ -1,5 +1,7 @@
 const Database = require('better-sqlite3');
+const bcrypt = require('bcryptjs');
 const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 
 const DB_PATH = path.join(__dirname, '../../data.db');
 
@@ -11,6 +13,7 @@ function getDb() {
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
     migrate(db);
+    seedUsers(db);
   }
   return db;
 }
@@ -54,6 +57,23 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_knowledge_type ON knowledge(type);
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
   `);
+}
+
+function seedUsers(db) {
+  const users = [
+    { name: 'Yuri', email: 'yuri', password: 'yuri1234@' },
+    { name: 'Raphael', email: 'raphael', password: 'raphael1234@' },
+  ];
+
+  for (const u of users) {
+    const exists = db.prepare('SELECT id FROM users WHERE email = ?').get(u.email);
+    if (!exists) {
+      const hash = bcrypt.hashSync(u.password, 10);
+      db.prepare('INSERT INTO users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run(uuidv4(), u.name, u.email, hash, Date.now());
+      console.log(`  ✓ Usuário criado: ${u.name}`);
+    }
+  }
 }
 
 module.exports = { getDb };
