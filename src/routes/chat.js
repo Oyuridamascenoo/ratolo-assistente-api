@@ -6,6 +6,20 @@ const { getAIResponse } = require('../services/ai');
 const router = express.Router();
 const now = () => Date.now();
 
+// Detecta comandos de aprendizado: "aprender:", "salvar:", "guardar:", "memorizar:"
+const LEARN_PREFIXES = /^(aprender|salvar|guardar|memorizar|aprenda|save|learn)\s*[:：]\s*/i;
+
+function extractLearnCommand(content) {
+  const match = content.match(LEARN_PREFIXES);
+  if (!match) return null;
+  const text = content.slice(match[0].length).trim();
+  if (!text) return null;
+  // Tenta extrair título da primeira linha
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const title = lines[0].length > 60 ? lines[0].slice(0, 60) + '…' : lines[0];
+  return { title, content: text };
+}
+
 // List all sessions
 router.get('/sessions', (req, res) => {
   const db = getDb();
@@ -74,13 +88,26 @@ router.post('/sessions/:id/messages', async (req, res) => {
     db.prepare('UPDATE chat_sessions SET updated_at = ? WHERE id = ?').run(t, req.params.id);
   }
 
-  // Get AI response
+  // Detecta comando de aprendizado
+  const learnData = extractLearnCommand(content.trim());
   let assistantText;
-  try {
-    assistantText = await getAIResponse(req.params.id, content.trim());
-  } catch (err) {
-    console.error('AI error:', err.message);
-    assistantText = 'Erro ao processar resposta. Tente novamente.';
+
+  if (learnData) {
+    // Salva na base de conhecimento
+    const kid = uuidv4();
+    const kt = now();
+    db.prepare(
+      'INSERT INTO knowledge (id, title, content, type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(kid, learnData.title, learnData.content, 'text', kt, kt);
+    assistantText = `✅ **Conhecimento salvo!**\n\n**"${learnData.title}"** foi adicionado à base de conhecimento. A partir de agora vou usar essa informação nas minhas respostas.`;
+  } else {
+    // Get AI response
+    try {
+      assistantText = await getAIResponse(req.params.id, content.trim());
+    } catch (err) {
+      console.error('AI error:', err.message);
+      assistantText = 'Erro ao processar resposta. Tente novamente.';
+    }
   }
 
   // Save assistant message
